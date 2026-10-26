@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "cbm": {
+      "command": "/home/brady/.local/bin/codebase-memory-mcp",
+      "env": {
+        "CBM_CACHE_DIR": "/home/brady/.cache/codebase-memory-mcp"
+      },
+      "description": "Search and trace code symbols, source snippets, callers and change impact. Prefer these tools for structural code discovery.",
+      "exposure": "deferred",
+      "toolExposure": {
+        "list_projects": "direct",
+        "index_status": "direct",
+        "search_graph": "direct",
+        "get_code_snippet": "direct",
+        "trace_path": "direct",
+        "check_index_coverage": "direct",
+        "detect_changes": "direct",
+        "search_code": "direct"
+      }
+    }
+  }
+}

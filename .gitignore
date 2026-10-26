@@ -1,0 +1,36 @@
+# machine state / secrets — never commit
+auth.json
+trust.json
+models.json
+models-store.json
+models.json.bak*
+settings.json
+settings.json.bak*
+compaction-model.json
+compaction-model.json.bak*
+model-carryover.json
+mcp-cache.json
+mcp-npx-cache.json
+mcp-onboarding.json
+mcp-project-approvals.json
+output-guard.json
+pi-goal-x-reapply.log
+context-mode-anchor-debug.log
+
+# runtime data
+sessions/
+npm/
+_archive/
+missions/
+patches/
+pi-cache-optimizer-stats.d/
+packages/
+bin/
+
+# editor / OS noise
+*.bak
+*.bak-*
+*.swp
+.DS_Store
+node_modules/
+__pycache__/

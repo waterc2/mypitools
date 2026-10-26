@@ -1,0 +1,24 @@
+{
+  "_readme": "tool-deny extension config. Listed tools are removed from pi's ACTIVE tool set (pi.setActiveTools) and hard-blocked at execution time (tool_call guard). They stay REGISTERED: delete an entry and /reload to restore. Unknown names are ignored, so a stale entry is harmless.",
+  "_enforcement_20260927": "ENFORCED (verified 2026-09-27 11:55 PDT): calling a denied tool returns \"Tool <name> not found\" because the executor refuses non-active tools, and the extension now also hard-blocks every denylist entry in a `tool_call` handler. The earlier \"NOT ENFORCED\" note was a stale-state artifact: this JSON was edited mid-session, but the deny set is re-read only at session_start, so that test ran against the previous list. The extension now re-reads this file on every turn. Caveat: pi keeps the session-start tool definitions in the prompt prefix, so a denied tool can still be LISTED until the next session even though calls are refused.",
+  "_invariant_20261001": "SINGLE SOURCE OF TRUTH. The context-mode bridge patch (mcp-bridge.js, marker CTX_DENY_SOURCE) registers every ctx_* tool NOT listed here, and context-mode's routing anchor hides exactly the names listed here. So 'advertised' and 'callable' are the same set by construction: add a name to deny and it disappears from the prompt anchor AND from the tool list AND its calls are refused; remove it and all three come back. The 2026-09-30 hard-coded 3-tool whitelist broke this (anchor advertised ctx_search / ctx_fetch_and_index / ctx_stats / ctx_doctor while only 3 tools were registered) and produced 'Tool ctx_search not found' calls on 2026-10-01.",
+  "_groups": {
+    "requested_by_user": ["ctx_insight", "ctx_upgrade", "ctx_purge"],
+    "zero_use_but_expensive": ["ctx_index"],
+    "restored_20260927": ["ctx_search", "ctx_fetch_and_index"],
+    "denied_20261001_unregistered_and_unused": ["ctx_stats", "ctx_doctor"],
+    "restored_20261001": ["search_code"]
+  },
+  "deny": ["ctx_insight", "ctx_upgrade", "ctx_purge", "ctx_index", "ctx_stats", "ctx_doctor"],
+  "_kept": {
+    "search_code": "restored 2026-10-01: it was never 'already gone' — the codebase-memory MCP server still exposes it and ~/code/AI-cardgame1/AGENTS.md makes it the default text-search path, so denying it only produced refused calls. tool-deny was the only thing hiding it",
+    "_cbm_surface_20261017": "codebase-memory-mcp 0.12.1 tools/list returns 17 tools (index_repository, search_graph, query_graph, trace_path, get_code_snippet, get_file_outline, get_graph_schema, compare_graphs, get_architecture, search_code, list_projects, delete_project, index_status, check_index_coverage, detect_changes, manage_adr, ingest_traces). The 2026-09-30 mcp-cache.json snapshot claiming 15 is stale — do not cite it as evidence. The 6 tools missing from the cardsearch session are NOT server-side removals: they are hidden by cardsearch/.pi/mcp.json toolExposure (get_file_outline, get_graph_schema, compare_graphs, delete_project, manage_adr, ingest_traces), so they are absent from ALL_TOOLS and reject codemode calls. tool-deny.json does not list any cbm tool; unhide via .pi/mcp.json, not here.",
+    "ctx_execute": "the main token saver for large command output",
+    "ctx_execute_file": "keeps file bytes out of context; confined to the project root",
+    "ctx_batch_execute": "does its own inline retrieval; also the cross-source retrieval surface (query_scope: 'global')",
+    "ctx_search": "re-registered 2026-10-01: native retrieval half of ctx_execute's auto-index; ctx_batch_execute(query_scope:'global') is only a substitute, and context-mode's own truncation hints tell the model to call ctx_search",
+    "ctx_fetch_and_index": "re-registered 2026-10-01: the only read-only URL/web ingestion entry, no substitute existed",
+    "ctx_stats": "denied again 2026-10-01: the 2026-09-30 whitelist had already unregistered it, so 'kept' was fiction and the anchor advertised a tool that did not exist. Re-enable by deleting it from deny (the bridge will register it again)",
+    "ctx_doctor": "denied again 2026-10-01: same as ctx_stats — unregistered by the whitelist, so keeping it out of deny only produced ghost advertising"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "disabled": true,
+  "pauseOnCreate": true,
+  "oracle": {
+    "enabled": true,
+    "provider": "mytoken",
+    "model": "gpt-6-sol"
+  }
+}
