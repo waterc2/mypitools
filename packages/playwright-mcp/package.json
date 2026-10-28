@@ -1,0 +1,11 @@
+{
+  "name": "playwright-mcp",
+  "private": true,
+  "description": "Pinned @playwright/mcp install used as a stdio MCP server by .pi/mcp.json.",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  },
+  "pi": {
+    "extensions": ["!*"]
+  }
+}

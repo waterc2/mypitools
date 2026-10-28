@@ -25,7 +25,7 @@ if (existsSync(ENTRY)) {
   setIf("ZCODE_SERVE_CMD", `node ${ENTRY} app-server`);
   // AppImage layout = the "modern" catalog (Desktop 3.12+). Custom serve
   // commands otherwise default to the legacy protocol, which fails with
-  // "Provider Registry 中不存在 Model".
+  // "Model not found in Provider Registry".
   setIf("ZCODE_PROTOCOL_VARIANT", "modern");
 }
 if (existsSync(CATALOG)) setIf("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", CATALOG);

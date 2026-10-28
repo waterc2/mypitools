@@ -1,0 +1,11 @@
+# USER-ADDED. Hides skills from pi's system prompt.
+# Pi's skill loader reads `.ignore` / `.gitignore` / `.fdignore` while scanning
+# skill directories and skips matching entries (verified against pi's skills.js).
+#
+# 2026-09-27: `codebase-memory/` was DELETED from disk, not merely ignored.
+# It was the THIRD copy of the codebase-memory usage guide, and the MCP tool
+# schemas already document their own parameters. The other two copies were:
+#   1. ~/.pi/agent/AGENTS.md      (codebase-memory-mcp marker block) - removed
+#   2. cardsearch/AGENTS.md       (COMPILER-GRADE SEARCH PROTOCOL)  - replaced
+#                                  by a 3-line guide
+# No patterns remain; this file is kept as the provenance record.

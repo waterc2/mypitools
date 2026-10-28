@@ -1,0 +1,231 @@
+diff --git a/extensions/goal-commands.ts b/extensions/goal-commands.ts
+--- a/extensions/goal-commands.ts
++++ b/extensions/goal-commands.ts
+@@ -373,6 +373,7 @@
+ 		{ key: "hideUnfocusedPrompt", label: "hideUnfocusedPrompt", section: "Goal behavior", kind: "boolean" },
+ 		{ key: "disableContracts", label: "disableContracts", section: "Goal behavior", kind: "boolean" },
+ 		{ key: "strictExecutionContract", label: "explicit execution contracts (opt-in)", section: "Goal behavior", kind: "boolean" },
++		{ key: "pauseOnCreate", label: "pause /goal after creation (switch model, then /goal-resume)", section: "Goal behavior", kind: "boolean" },
+ 		{ key: "maxAutonomousRuns", label: "autonomous run allowance", section: "Goal behavior", kind: "positiveInteger" },
+ 		{ key: "showAutonomousRuns", label: "show autonomous runs line", section: "Goal behavior", kind: "boolean" },
+ 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", section: "Goal behavior", kind: "positiveInteger" },
+@@ -393,7 +394,7 @@
+ 	];
+ 
+ 	function settingsValue(config: GoalSettings, key: keyof GoalSettings | string): string {
+-		if (key === "strictExecutionContract" || key === "disabled" || key === "disableTasks" || key === "disableContracts" || key === "autoSelectSingleGoal" || key === "auditorProjectResources" || key === "hideUnfocusedBanner" || key === "hideUnfocusedPrompt" || key === "showAutonomousRuns") {
++		if (key === "strictExecutionContract" || key === "pauseOnCreate" || key === "disabled" || key === "disableTasks" || key === "disableContracts" || key === "autoSelectSingleGoal" || key === "auditorProjectResources" || key === "hideUnfocusedBanner" || key === "hideUnfocusedPrompt" || key === "showAutonomousRuns") {
+ 			return config[key] === true ? "true" : "false";
+ 		}
+ 		if (key === "subtaskDepth") return config.subtaskDepth !== undefined ? String(config.subtaskDepth) : "1";
+diff --git a/extensions/goal-drafting.ts b/extensions/goal-drafting.ts
+--- a/extensions/goal-drafting.ts
++++ b/extensions/goal-drafting.ts
+@@ -402,13 +402,19 @@
+ 					const derived = deriveTasksFromObjective(extracted.objective);
+ 					return derived && derived.length > 0 ? { tasks: derived, blockCompletion: false, proposedAt: nowIso() } : undefined;
+ 				})();
+-				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor }, ctx, true, extracted.verificationContract, proposedBudget);
++				// pauseOnCreate: only the guided /goal path defers execution (not
++				// /sisyphus, /goal-direct, or the create_goal tool). The goal is
++				// persisted paused so no scheduler/continuation can reclaim it
++				// before the user switches models and runs /goal-resume.
++				const deferredStart = draft.mode === "goal" && settings.pauseOnCreate === true;
++				core.replaceGoal({ objective: extracted.objective, autoContinue: params.auto_continue !== false, sisyphus: expectedSisyphus, taskList: effectiveTaskList, skipAuditor, startPaused: deferredStart }, ctx, true, extracted.verificationContract, proposedBudget);
+ 				clearGoalDrafting(core, ctx);
+ 				const created = core.state.goal;
+ 				return { content: [{ type: "text", text: `${summary}\n\n${buildGoalCreatedReport({
+ 					objective: extracted.objective,
+ 					detailedSummary: qaEcho,
+ 					confirmed: true,
++					deferred: deferredStart,
+ 					goalId: created?.id,
+ 					filePath: created?.activePath,
+ 					taskCount: created?.taskList ? countTasks(created.taskList.tasks) : undefined,
+diff --git a/extensions/goal-policy.ts b/extensions/goal-policy.ts
+--- a/extensions/goal-policy.ts
++++ b/extensions/goal-policy.ts
+@@ -298,6 +298,12 @@
+ 	 * configuration, token budget). Direct creation keeps the default text.
+ 	 */
+ 	confirmed?: boolean;
++	/**
++	 * pauseOnCreate: the goal was created but execution is deferred until
++	 * /goal-resume (the user switches models first). Replaces the
++	 * "continuing automatically" opening with an explicit start instruction.
++	 */
++	deferred?: boolean;
+ 	goalId?: string;
+ 	filePath?: string;
+ 	taskCount?: number;
+@@ -311,9 +317,11 @@
+ }
+ 
+ export function buildGoalCreatedReport(args: GoalCreatedReportArgs): string {
+-	const opening = args.confirmed
+-		? ["✓ Goal created and focused.", "Continuing automatically with the confirmed plan."]
+-		: ["Goal confirmed and created."];
++	const opening = args.deferred
++		? ["✓ Goal created and focused — paused.", "Execution is deferred (pauseOnCreate). Switch to your execution model, then run /goal-resume to start from the current task."]
++		: args.confirmed
++			? ["✓ Goal created and focused.", "Continuing automatically with the confirmed plan."]
++			: ["Goal confirmed and created."];
+ 	const lines = [...opening, "", "Finalized goal:", "", args.objective.trim()];
+ 	const details: string[] = [];
+ 	if (args.goalId) details.push(`Goal id: ${args.goalId}`);
+diff --git a/extensions/goal-record.ts b/extensions/goal-record.ts
+--- a/extensions/goal-record.ts
++++ b/extensions/goal-record.ts
+@@ -143,6 +143,12 @@
+ 	taskList?: GoalTaskList;
+ 	/** User-chosen per-draft auditor bypass, persisted on the created goal. */
+ 	skipAuditor?: boolean;
++	/**
++	 * Create the goal already paused so execution is deferred until an explicit
++	 * /goal-resume. Used by /goal when pauseOnCreate is enabled, so the user can
++	 * switch to a cheaper execution model after planning on an expensive one.
++	 */
++	startPaused?: boolean;
+ }
+ 
+ export interface AssistantUsage {
+diff --git a/extensions/goal-settings.ts b/extensions/goal-settings.ts
+--- a/extensions/goal-settings.ts
++++ b/extensions/goal-settings.ts
+@@ -112,6 +112,14 @@
+ 	showAutonomousRuns?: boolean;
+ 	strictExecutionContract?: boolean;
+ 	/**
++	 * When true, /goal creates the goal paused instead of running it: the user
++	 * switches to an execution model and starts it explicitly with
++	 * /goal-resume. Defaults to true so planning and execution can use
++	 * different models. Applies only to the guided /goal path (not /sisyphus,
++	 * /goal-direct, /sisyphus-direct, or the create_goal tool).
++	 */
++	pauseOnCreate?: boolean;
++	/**
+ 	 * Maximum objective length in characters (0/unset = no limit, the
+ 	 * default; >0 caps objectives in create_goal, propose_goal_draft, and
+ 	 * /goal-tweak).
+@@ -342,6 +350,7 @@
+ 	"stallTimeoutMinutes",
+ 	"maxAutonomousRuns",
+ 	"strictExecutionContract",
++	"pauseOnCreate",
+ 	"objectiveMaxChars",
+ 	"keybindings",
+ 	"hideUnfocusedBanner",
+@@ -395,6 +404,7 @@
+ 	for (const [key, value] of Object.entries(record)) {
+ 		switch (key) {
+ 			case "strictExecutionContract":
++			case "pauseOnCreate":
+ 			case "disableTasks":
+ 			case "disableContracts":
+ 			case "disabled":
+@@ -827,6 +837,11 @@
+ 		globalValue: global.layer.strictExecutionContract,
+ 		defaultValue: false,
+ 	}));
++	const pauseOnCreate = track("pauseOnCreate", resolveLeaf<boolean>({
++		projectValue: project.layer.pauseOnCreate,
++		globalValue: global.layer.pauseOnCreate,
++		defaultValue: true,
++	}));
+ 	const maxAutonomousRuns = track("maxAutonomousRuns", resolveLeaf<number | undefined>({
+ 		projectValue: project.layer.maxAutonomousRuns,
+ 		globalValue: global.layer.maxAutonomousRuns,
+@@ -896,6 +911,7 @@
+ 		stallTimeoutMinutes,
+ 		maxAutonomousRuns,
+ 		strictExecutionContract,
++		pauseOnCreate,
+ 		objectiveMaxChars,
+ 		keybindings,
+ 		networkRecovery: {
+@@ -1249,6 +1265,7 @@
+ 		if (Object.keys(o).length > 0) persisted.oracle = o;
+ 	}
+ 	if (settings.strictExecutionContract !== undefined) persisted.strictExecutionContract = settings.strictExecutionContract;
++	if (settings.pauseOnCreate !== undefined) persisted.pauseOnCreate = settings.pauseOnCreate;
+ 	if (settings.maxAutonomousRuns !== undefined) persisted.maxAutonomousRuns = settings.maxAutonomousRuns;
+ 	if (settings.stallTimeoutMinutes !== undefined) persisted.stallTimeoutMinutes = settings.stallTimeoutMinutes;
+ 	if (settings.objectiveMaxChars !== undefined) persisted.objectiveMaxChars = settings.objectiveMaxChars;
+@@ -1298,6 +1315,7 @@
+ 		{ key: "goalsRoot", label: "goals root (reload to change)", format: () => snapshot.value.goalsRoot ?? ".pi/goals" },
+ 		{ key: "hideUnfocusedPrompt", label: "hide unfocused prompt", format: () => String(snapshot.value.hideUnfocusedPrompt) },
+ 		{ key: "strictExecutionContract", label: "explicit execution contracts (opt-in)", format: () => String(snapshot.value.strictExecutionContract) },
++		{ key: "pauseOnCreate", label: "pause /goal after creation (switch model, then /goal-resume)", format: () => String(snapshot.value.pauseOnCreate) },
+ 		{ key: "maxAutonomousRuns", label: "autonomous run allowance", format: () => snapshot.value.maxAutonomousRuns === 0 ? "0 (disabled)" : String(snapshot.value.maxAutonomousRuns ?? "unlimited (default)") },
+ 		{ key: "stallTimeoutMinutes", label: "stall timeout (minutes)", format: () => String(snapshot.value.stallTimeoutMinutes) },
+ 		{ key: "objectiveMaxChars", label: "max objective length (0 = none)", format: () => String(snapshot.value.objectiveMaxChars) },
+diff --git a/extensions/goal-state.ts b/extensions/goal-state.ts
+--- a/extensions/goal-state.ts
++++ b/extensions/goal-state.ts
+@@ -43,7 +43,7 @@
+ 	otherOpenGoalCount,
+ 	resolveSessionFocus,
+ } from "./goal-pool.ts";
+-import { buildGoalRunningNotification } from "./widgets/goal-notifications.ts";
++import { buildGoalPausedNotification, buildGoalRunningNotification } from "./widgets/goal-notifications.ts";
+ import { GOAL_WIDGET_KEY, GoalWidgetComponent, liveDisplayGoal, makeGoalWidgetFactory, type AuditorWidgetProgress } from "./widgets/goal-widget.ts";
+ import type { AuditVerdict } from "./widgets/auditor-dashboard-model.ts";
+ import { runGoalCompletionAuditor } from "./goal-auditor.ts";
+@@ -898,6 +898,19 @@
+ 		if (verificationContract) goal.verificationContract = verificationContract;
+ 		if (config.taskList) goal.taskList = config.taskList;
+ 		if (typeof tokenBudget === "number" && tokenBudget > 0) goal.tokenBudget = Math.floor(tokenBudget);
++		// 2026-10-13 local patch: pause-on-create.
++		// (see ~/.pi/agent/patches/pi-goal-x/README.md; marker: pi-goal-x-local-patch:pause-on-create)
++		// pauseOnCreate (/goal): the goal is fully persisted here but never
++		// becomes runnable, so no scheduler kickoff, continuation, or agent_end
++		// auto-continue can fire. The user switches models, then runs
++		// /goal-resume, which restores status=active and a fresh scheduler.
++		const deferredStart = config.startPaused === true;
++		if (deferredStart) {
++			goal.status = "paused";
++			goal.autoContinue = false;
++			goal.pauseReason = "Goal created; execution deferred by pauseOnCreate.";
++			goal.pauseSuggestedAction = "Switch to your execution model, then run /goal-resume to start.";
++		}
+ 		const result = goalService.create(ctx, {
+ 			goal,
+ 		ledger: [
+@@ -916,11 +929,21 @@
+ 				blockCompletion: goal.taskList.blockCompletion,
+ 				at: goal.createdAt,
+ 			}] : []),
++			...(deferredStart ? [{
++				type: "goal_paused" as const,
++				goalId: goal.id,
++				reason: goal.pauseReason ?? "Goal created; execution deferred by pauseOnCreate.",
++				suggestedAction: goal.pauseSuggestedAction,
++				status: "paused" as const,
++				source: "user" as const,
++				at: goal.createdAt,
++			}] : []),
+ 		],
+ 		});
+ 		if (result.focusChanged) appendFocusEntry(result.goalId, "created");
+ 		beginAccounting();
+-		ctx.ui.notify(`${buildGoalRunningNotification(config)}\nBudget: ${goal.tokenBudget === undefined ? "none" : `${goal.tokenBudget} tokens`}`, "info");
++		const budgetLine = `Budget: ${goal.tokenBudget === undefined ? "none" : `${goal.tokenBudget} tokens`}`;
++		ctx.ui.notify(`${deferredStart ? buildGoalPausedNotification(config) : buildGoalRunningNotification(config)}\n${budgetLine}`, "info");
+ 		if (startNow && state.goal?.autoContinue) scheduler.kickoff(ctx);
+ 	}
+ 
+diff --git a/extensions/widgets/goal-notifications.ts b/extensions/widgets/goal-notifications.ts
+--- a/extensions/widgets/goal-notifications.ts
++++ b/extensions/widgets/goal-notifications.ts
+@@ -7,3 +7,11 @@
+ 	const drive = args.autoContinue ? "auto-continue on" : "manual mode";
+ 	return [`${icon} ${mode} running`, `├─ ⟡ ${title}`, `└─ ${drive}`].join("\n");
+ }
++
++/** Notification for a goal created paused (pauseOnCreate): persisted, not running. */
++export function buildGoalPausedNotification(args: { objective: string; sisyphus: boolean }): string {
++	const icon = args.sisyphus ? "◆" : "●";
++	const mode = args.sisyphus ? "Sisyphus" : "Goal";
++	const title = truncateText(displayObjectiveTitle(args.objective), 92);
++	return [`${icon} ${mode} created and paused`, `├─ ⟡ ${title}`, "└─ Switch to your execution model, then run /goal-resume to start"].join("\n");
++}

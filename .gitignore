@@ -13,6 +13,7 @@ mcp-cache.json
 mcp-npx-cache.json
 mcp-onboarding.json
 mcp-project-approvals.json
+mcp-project-approvals.json.bak*
 output-guard.json
 pi-goal-x-reapply.log
 context-mode-anchor-debug.log
@@ -22,15 +23,16 @@ sessions/
 npm/
 _archive/
 missions/
-patches/
 pi-cache-optimizer-stats.d/
-packages/
 bin/
+**/node_modules/
 
 # editor / OS noise
 *.bak
 *.bak-*
 *.swp
 .DS_Store
-node_modules/
 __pycache__/
+
+# machine-specific paths
+mcp.json

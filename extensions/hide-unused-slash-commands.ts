@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI): void {
       }
 
       ctx.ui.setEditorText("");
-      ctx.ui.notify(`已屏蔽 /${commandName}`, "info");
+      ctx.ui.notify(`Blocked /${commandName}`, "info");
       return { consume: true };
     });
   });
