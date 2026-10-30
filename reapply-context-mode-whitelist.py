@@ -60,6 +60,9 @@ BLOCK = """    const tools = await client.listTools();
         if (tool.name === \"ctx_execute\") {
             return \"Execute script (js/py/sh) in an isolated sandbox. Only what the script prints (console.log/print/echo) enters context; everything else stays out. Pass {language, code, intent?}. Output >5KB is auto-indexed, then retrieved via ctx_search or ctx_batch_execute(query_scope:'global')\";
         }
+        if (tool.name === \"ctx_execute_file\") {
+            return \"Analyze a large log or structured data file in a sandbox; only printed results enter context. Use code_* or read for source navigation/implementation reads. Pass {path, language, code, intent?}; FILE_CONTENT contains the file (file_content in Elixir). Large output is indexed for ctx_search.\";
+        }
         return tool.description ?? \"\";
     };
     const registered = [];

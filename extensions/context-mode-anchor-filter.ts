@@ -1,4 +1,5 @@
-// PURPOSE: keep context-mode's per-turn routing anchor honest. context-mode 1.0.169
+// PURPOSE: narrow context-mode's anchor to data analysis, without a competing tool hierarchy.
+// context-mode 1.0.169
 // appends "context-mode active. Hierarchy: ..." to pi's system prompt every turn and
 // routes to ctx_* tools even when they are denied via ~/.pi/agent/tool-deny.json, so
 // the model gets pointed at tools it cannot call.
@@ -58,19 +59,10 @@ function cleanAnchorLine(line, denied, removed) {
   for (const clause of clauses) {
     const names = clause.match(/ctx_[a-z_]+/g) ?? [];
     const bad = names.filter((n) => denied.has(n));
-    if (bad.length === 0) {
-      kept.push(clause);
-      continue;
-    }
     removed.push(...bad);
-    if (clause.startsWith(HIERARCHY_HEAD)) {
-      const chain = clause
-        .slice(HIERARCHY_HEAD.length)
-        .replace(/\.$/, '')
-        .split(' > ')
-        .filter((n) => !denied.has(n));
-      if (chain.length > 0) kept.push(HIERARCHY_HEAD + chain.join(' > '));
-    }
+    if (bad.length || clause.startsWith(HIERARCHY_HEAD)) continue;
+    kept.push(clause.replace('Read/edit files → ctx_execute_file', 'Large logs/structured data → ctx_execute_file')
+      .replace('Multi-command research → ctx_batch_execute', 'Logs/build output → ctx_batch_execute'));
   }
   if (kept.length === 0) return prefix.trimEnd();
   const body = kept.join('. ').replace(/\.+$/, '');
@@ -78,10 +70,10 @@ function cleanAnchorLine(line, denied, removed) {
 }
 
 function cleanAnchorText(text, denied, removed) {
-  if (!text.includes(ANCHOR_HEAD + HIERARCHY_HEAD)) return text;
+  if (!text.includes(ANCHOR_HEAD)) return text;
   return text
     .split('\n')
-    .map((line) => (line.includes(ANCHOR_HEAD + HIERARCHY_HEAD) ? cleanAnchorLine(line, denied, removed) : line))
+    .map((line) => (line.includes(ANCHOR_HEAD) ? cleanAnchorLine(line, denied, removed) : line))
     .join('\n');
 }
 
@@ -107,7 +99,7 @@ export default function anchorFilter(pi) {
   pi.on('before_agent_start', async (event) => {
     const prompt = String(event?.systemPrompt ?? '');
     const denied = loadDenySet();
-    const seen = prompt.includes(ANCHOR_HEAD + HIERARCHY_HEAD);
+    const seen = prompt.includes(ANCHOR_HEAD);
     const removed = [];
     const rewritten = cleanAnchorText(prompt, denied, removed);
     const changed = rewritten !== prompt;
@@ -129,14 +121,24 @@ export default function anchorFilter(pi) {
     }
     const denied = loadDenySet();
     const removed = [];
-    const content = cleanContent(messages[0].content, denied, removed);
-    const changed = content !== messages[0].content;
+    // The package now also injects a synthetic user tail. Only clean that known
+    // anchor, never ordinary user prompts or tool output mentioning its text.
+    let changed = false;
+    const rewritten = messages.map(message => {
+      const blocks = typeof message.content === 'string' ? message.content
+        : Array.isArray(message.content) ? message.content.filter(block => block?.type === 'text').map(block => block.text).join('\n') : '';
+      if (message.role !== 'system' && !(message.role === 'user' && blocks.startsWith(ANCHOR_HEAD))) return message;
+      const content = cleanContent(message.content, denied, removed);
+      if (content === message.content) return message;
+      changed = true;
+      return { ...message, content };
+    });
     log(
       'anchor-filter:context_with_system',
       'denied=' + denied.size + ' removed=' + JSON.stringify(removed) + ' changed=' + changed +
         ' messages=' + messages.length,
     );
     if (!changed) return undefined;
-    return { messages: [{ ...messages[0], content }, ...messages.slice(1)] };
+    return { messages: rewritten };
   });
 }
