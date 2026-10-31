@@ -22,6 +22,7 @@ extensions/                 Pi extensions (auto-discovered from ~/.pi/agent/exte
   output-guard.ts             caps oversized tool output
   pi-goal-x-reapply.ts        re-applies pi-goal-x settings
   slash-command-order.ts
+  source-write-guard.ts      blocks Python / common script and shell writes before execution
   tool-deny.ts                denylist enforcement for tools
   zcode-env.ts                zcode provider env
 lib/high-fidelity-compaction/ High-fidelity compaction engine (see its own README.md)
@@ -70,6 +71,33 @@ either.
   `models.json`; substitute your own.
 - `settings.json` itself is not committed because it mixes package wiring with
   machine state; copy the `packages`/`extensions` entries you need by hand.
+
+## Source-write routing guard
+
+`extensions/source-write-guard.ts` uses `tool_call` to refuse calls **before**
+execution (including nested tool calls). Run `/reload` to load it in an existing
+session; new sessions discover it automatically. No confirmation/override is
+provided. Direct `edit`/`write` remain allowed.
+
+It covers `bash`, `ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, and
+obvious raw process/filesystem writes in `codemode`. It conservatively rejects
+explicit Python/PyPy references, other inline interpreters, shell file redirects,
+heredocs, command substitutions, common file-writing commands and in-place edits.
+Read-only Python is also rejected. Ordinary build/test commands, `2>&1`, and
+redirection to `/dev/null` remain allowed. Quote/pattern matching can produce
+false positives; use the dedicated source tools instead of inline scripts.
+
+This is a heuristic routing policy, **not a security sandbox**: existing scripts,
+aliases, obfuscated commands, arbitrary executable tools, build hooks and external
+MCP services may still write files. It does not intercept manually entered `!`
+commands or extension-internal `pi.exec` calls. A true no-bypass guarantee requires
+OS-level filesystem isolation and control of every execution entry point.
+
+Focused checks (no commands under test are executed):
+
+```sh
+node --experimental-strip-types --test extensions/source-write-guard.test.mjs
+```
 
 ## Tests (high-fidelity compaction)
 
